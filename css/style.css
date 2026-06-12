@@ -1,0 +1,55 @@
+/* ===========================================================
+   天音彼方 打肉！ — 樣式 + 網頁防雷
+   =========================================================== */
+
+/* --- 防雷：鎖捲動、禁選取、禁長按選單、禁雙擊縮放 --- */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;                 /* 防整頁捲動 */
+  overscroll-behavior: none;        /* 防下拉刷新 / 彈跳 */
+  background: #1a2238;
+  touch-action: none;               /* 防雙擊縮放、捲動手勢 */
+  -webkit-user-select: none;        /* 防連點選到文字 */
+  -moz-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;      /* iOS 防長按選單 */
+  font-family: "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif;
+}
+
+#game-shell {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+#game {
+  display: block;
+  width: min(96vw, calc(96vh * 1.6));   /* 維持 960:600 = 1.6 比例 */
+  height: auto;
+  aspect-ratio: 960 / 600;
+  border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.45), 0 0 0 4px rgba(255,255,255,.06);
+  background: #bfe3ff;
+  cursor: pointer;
+  image-rendering: optimizeQuality;
+  -webkit-user-drag: none;          /* 防拖曳 */
+}
+
+#hint {
+  color: rgba(255,255,255,.65);
+  font-size: 13px;
+  letter-spacing: .5px;
+  pointer-events: none;
+}
+
+@media (max-height: 520px) {
+  #hint { display: none; }
+}
