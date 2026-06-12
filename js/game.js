@@ -315,6 +315,67 @@
     ctx.fillStyle = '#3a4a6b';
   }
 
+  // ---------- 第一人稱拳套（遊玩視角：只看得到自己的手） ----------
+  const FIST_REST = { L: { x: 175, y: 600 }, R: { x: 785, y: 600 } };
+  function drawFists(t) {
+    // 後出拳的手畫在上層
+    if (angel.last === 'L') { drawFist('R', angel.punchR, t); drawFist('L', angel.punchL, t); }
+    else { drawFist('L', angel.punchL, t); drawFist('R', angel.punchR, t); }
+  }
+  function drawFist(side, p, t) {
+    const dir = side === 'L' ? -1 : 1;
+    const rest = FIST_REST[side];
+    const idle = Math.sin(t * 2.2 + (side === 'L' ? 0 : 1.7)) * 7;
+    // p=1 為命中瞬間（拳在肉上），p→0 收回；含透視縮小
+    const tx = MEAT_X + dir * 34, ty = MEAT_Y + 46;
+    const x = lerp(rest.x, tx, p);
+    const y = lerp(rest.y + idle, ty, p);
+    const s = lerp(1, 0.58, p);
+
+    // 前臂（從畫面外伸進來）
+    ctx.strokeStyle = '#fff4ee';
+    ctx.lineWidth = 44 * s;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(rest.x + dir * 120, H + 80);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(dir * lerp(0.12, -0.18, p));
+    ctx.scale(s, s);
+    // 蓬蓬白袖口
+    ctx.fillStyle = '#ffffff';
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath(); ctx.arc(i * 18, 44, 17, 0, 7); ctx.fill();
+    }
+    // 粉色拳套本體
+    const g = ctx.createRadialGradient(-14, -16, 8, 0, 0, 58);
+    g.addColorStop(0, '#ffc1da'); g.addColorStop(1, '#ff8fbe');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, 50, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#ff7bb0'; ctx.lineWidth = 4; ctx.stroke();
+    // 拇指
+    ctx.fillStyle = '#ffb3d2';
+    ctx.beginPath(); ctx.ellipse(dir * -38, 14, 16, 22, dir * 0.5, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#ff7bb0'; ctx.lineWidth = 3; ctx.stroke();
+    // 拳背小翅膀
+    ctx.fillStyle = 'rgba(255,255,255,.95)';
+    ctx.save(); ctx.translate(dir * 30, -34); ctx.scale(dir * 0.55, 0.55);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(36, -28, 54, 4);
+    ctx.quadraticCurveTo(40, 8, 44, 30);
+    ctx.quadraticCurveTo(26, 18, 22, 36);
+    ctx.quadraticCurveTo(10, 16, 0, 0);
+    ctx.fill(); ctx.restore();
+    // 拳面小星星
+    ctx.fillStyle = '#fff0a8';
+    star(0, -8, 13, 6, 5); ctx.fill();
+    ctx.restore();
+  }
+
   // ---------- 肉塊 ----------
   function drawMeat(x, y, scale, hpRatio, squash, t) {
     ctx.save();
@@ -457,7 +518,7 @@
     angel.punchL = Math.max(0, angel.punchL - dt * 6);
     angel.punchR = Math.max(0, angel.punchR - dt * 6);
   }
-  const MEAT_X = 660, MEAT_Y = 320;
+  const MEAT_X = 480, MEAT_Y = 290;
   function hitMeatFx(crit) {
     burst(MEAT_X, MEAT_Y, crit ? '#ffd86b' : '#ff8fc7', crit ? 22 : 12);
     shake(crit ? 14 : 7);
@@ -604,10 +665,10 @@
         bar(W/2 - 200, 24, 400, 18, this.time / 18, '#ffd24a');
         ctx.textAlign='center'; ctx.font='700 14px "Microsoft JhengHei"'; ctx.fillStyle='#2a3b5c';
         ctx.fillText('STAGE 1 · 連打地獄', W/2, 56);
-        drawAngel(300, 360, this.t, angel.punchL, angel.punchR);
-        drawMeat(MEAT_X, MEAT_Y, 1.1, this.hp / this.maxhp, this.squash, this.t);
+        drawMeat(MEAT_X, MEAT_Y, 1.55, this.hp / this.maxhp, this.squash, this.t);
         // 肉的血條
-        bar(MEAT_X - 80, MEAT_Y - 110, 160, 14, this.hp / this.maxhp, '#ff5d7a');
+        bar(MEAT_X - 100, MEAT_Y - 155, 200, 16, this.hp / this.maxhp, '#ff5d7a');
+        drawFists(this.t);
         QTE.draw();
       }
     };
@@ -666,15 +727,15 @@
         drawHUD();
         ctx.textAlign='center'; ctx.font='700 14px "Microsoft JhengHei"'; ctx.fillStyle='#2a3b5c';
         ctx.fillText(`STAGE 2 · 連擊不斷　Combo ${this.combo}`, W/2, 40);
-        drawAngel(300, 360, this.t, angel.punchL, angel.punchR);
-        drawMeat(MEAT_X, MEAT_Y, 1.1, 0.6, this.squash, this.t);
+        drawMeat(MEAT_X, MEAT_Y, 1.45, 0.6, this.squash, this.t);
         // 收縮環指示（環縮到內圈白點時按）
-        const rMax = 90, r = lerp(rMax, 26, this.ring);
+        const rMax = 130, r = lerp(rMax, 36, this.ring);
         ctx.strokeStyle = this.ring > 0.9 || this.ring < 0.1 ? '#ffd24a' : 'rgba(255,255,255,.8)';
-        ctx.lineWidth = 5;
+        ctx.lineWidth = 6;
         ctx.beginPath(); ctx.arc(MEAT_X, MEAT_Y, r, 0, 7); ctx.stroke();
         ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.arc(MEAT_X, MEAT_Y, 26, 0, 7); ctx.stroke();
+        ctx.beginPath(); ctx.arc(MEAT_X, MEAT_Y, 36, 0, 7); ctx.stroke();
+        drawFists(this.t);
         QTE.draw();
       }
     };
@@ -684,7 +745,7 @@
   //  第3關：節奏打肉（音符落下，F=左 J=右 踩拍命中）
   // ===========================================================
   function Level3() {
-    const laneX = { L: 380, R: 540 };
+    const laneX = { L: 330, R: 630 };
     return {
       name: '節奏打肉', t: 0, notes: [], spawnT: 0, idx: 0, done: false, squash: 0,
       chart: null, hitLineY: 470, judged: 0, totalNotes: 0,
@@ -767,7 +828,8 @@
         }
         // 判定線
         ctx.strokeStyle = '#ff6fa5'; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.moveTo(346, this.hitLineY); ctx.lineTo(574, this.hitLineY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(laneX.L - 40, this.hitLineY); ctx.lineTo(laneX.L + 40, this.hitLineY);
+        ctx.moveTo(laneX.R - 40, this.hitLineY); ctx.lineTo(laneX.R + 40, this.hitLineY); ctx.stroke();
         // 音符
         for (const n of this.notes) {
           if (n.hit) continue;
@@ -776,8 +838,8 @@
           ctx.beginPath(); ctx.arc(x, n.y, 22, 0, 7); ctx.fill();
           ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
         }
-        drawMeat(MEAT_X + 80, MEAT_Y, 1.0, 0.6, this.squash, this.t);
-        drawAngel(180, 380, this.t, angel.punchL, angel.punchR);
+        drawMeat(MEAT_X, MEAT_Y - 60, 1.0, 0.6, this.squash, this.t);
+        drawFists(this.t);
       }
     };
   }
