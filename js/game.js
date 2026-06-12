@@ -376,6 +376,168 @@
     ctx.restore();
   }
 
+  // ---------- 結算演出：勝利 / 敗北 ----------
+  function drawAngelVictory(x, y, t) {
+    ctx.save();
+    ctx.translate(x, y - Math.abs(Math.sin(t * 5)) * 10); // 開心彈跳
+
+    // 光環
+    ctx.strokeStyle = '#ffe27a'; ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.ellipse(0, -92, 34, 11, 0, 0, 7); ctx.stroke();
+    // 翅膀
+    ctx.fillStyle = 'rgba(255,255,255,.95)';
+    wing(-46, -30, -1); wing(46, -30, 1);
+    // 身體
+    ctx.fillStyle = '#eaf6ff';
+    ctx.beginPath();
+    ctx.moveTo(-30, 10); ctx.quadraticCurveTo(-46, 70, -34, 92);
+    ctx.lineTo(34, 92); ctx.quadraticCurveTo(46, 70, 30, 10);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#bfe0f5'; ctx.lineWidth = 3; ctx.stroke();
+    // 左手垂下、右手高舉（拳擊勝利！）
+    drawArm(-30, 20, -1, 0);
+    ctx.strokeStyle = '#fff4ee'; ctx.lineWidth = 12; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(30, 20); ctx.lineTo(48, -100); ctx.stroke();
+    ctx.fillStyle = '#ff9ec7';
+    ctx.beginPath(); ctx.arc(50, -110, 15, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#ff7bb0'; ctx.lineWidth = 2; ctx.stroke();
+    // 舉拳閃光
+    ctx.fillStyle = '#fff0a8';
+    star(50, -138, 10 + Math.sin(t * 8) * 3, 4.5, 5); ctx.fill();
+
+    // 頭
+    ctx.fillStyle = '#fff4ee';
+    ctx.beginPath(); ctx.arc(0, -40, 42, 0, 7); ctx.fill();
+    // 後髮 + 瀏海 + 雙馬尾
+    ctx.fillStyle = '#8fe3e8';
+    ctx.beginPath(); ctx.arc(0, -44, 46, Math.PI, 0); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-44, -52);
+    ctx.quadraticCurveTo(-20, -92, 0, -78);
+    ctx.quadraticCurveTo(20, -92, 44, -52);
+    ctx.quadraticCurveTo(20, -64, 0, -60);
+    ctx.quadraticCurveTo(-20, -64, -44, -52);
+    ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-50, -34, 14, 30, 0.3, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(50, -34, 14, 30, -0.3, 0, 7); ctx.fill();
+    // 笑瞇眼（∪∪）
+    ctx.strokeStyle = '#3a4a6b'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(-16, -42, 8, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.arc(16, -42, 8, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+    // 腮紅
+    ctx.fillStyle = 'rgba(255,150,180,.55)';
+    ctx.beginPath(); ctx.arc(-24, -28, 8, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(24, -28, 8, 0, 7); ctx.fill();
+    // 大開口笑
+    ctx.fillStyle = '#c66';
+    ctx.beginPath(); ctx.arc(0, -20, 9, 0, Math.PI); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  // 被捏爆冒煙的握力器（60KG）
+  function drawGripper(x, y, t) {
+    ctx.save(); ctx.translate(x, y);
+    // 煙
+    for (let i = 0; i < 3; i++) {
+      const ph = ((t * 0.45) + i / 3) % 1;
+      ctx.globalAlpha = (1 - ph) * 0.5;
+      ctx.fillStyle = '#aab4c2';
+      ctx.beginPath();
+      ctx.arc(Math.sin((ph + i) * 6) * 10, -58 - ph * 70, 10 + ph * 16, 0, 7);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // 左右握把（斷開歪斜）
+    gripHandle(-18, 2, -0.45);
+    gripHandle(20, 4, 0.5);
+    // 斷裂的彈簧鋸齒
+    ctx.strokeStyle = '#9aa6b8'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-14, -30); ctx.lineTo(-6, -42); ctx.lineTo(-12, -50); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(16, -28); ctx.lineTo(8, -40); ctx.lineTo(14, -48); ctx.stroke();
+    // 爆裂星
+    ctx.fillStyle = '#ffd24a';
+    star(1, -46, 14 + Math.sin(t * 10) * 2, 6, 5); ctx.fill();
+    // 60KG 牌
+    ctx.fillStyle = '#fff';
+    roundRect(-36, 30, 72, 28, 8); ctx.fill();
+    ctx.strokeStyle = '#9aa6b8'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#e04a6a';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '900 20px "Microsoft JhengHei", sans-serif';
+    ctx.fillText('60KG', 0, 45);
+    ctx.restore();
+  }
+  function gripHandle(hx, hy, rot) {
+    ctx.save(); ctx.translate(hx, hy); ctx.rotate(rot);
+    ctx.fillStyle = '#5b80c2';
+    roundRect(-9, -28, 18, 56, 9); ctx.fill();
+    ctx.strokeStyle = '#41639e'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.restore();
+  }
+
+  // 跪趴在地哭（嘴裡 murmur「ガッキー...」）
+  function drawAngelDefeat(x, y, t) {
+    ctx.save(); ctx.translate(x, y); // y = 地面線
+    // 影子
+    ctx.fillStyle = 'rgba(0,0,0,.10)';
+    ctx.beginPath(); ctx.ellipse(-10, 10, 115, 18, 0, 0, 7); ctx.fill();
+    // 掉在地上的光環
+    ctx.strokeStyle = '#e0cd86'; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.ellipse(-122, 6, 26, 8, 0, 0, 7); ctx.stroke();
+    // 下垂的翅膀
+    ctx.fillStyle = 'rgba(255,255,255,.9)';
+    ctx.save(); ctx.translate(34, -50); ctx.rotate(0.95); ctx.scale(0.8, 0.8);
+    wing(0, 0, 1); ctx.restore();
+    // 跪坐的腿
+    ctx.fillStyle = '#eaf6ff';
+    ctx.beginPath(); ctx.ellipse(48, -26, 34, 30, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#bfe0f5'; ctx.lineWidth = 3; ctx.stroke();
+    // 前傾趴下的身體
+    ctx.beginPath();
+    ctx.moveTo(52, -46);
+    ctx.quadraticCurveTo(0, -58, -34, -32);
+    ctx.lineTo(-26, -6);
+    ctx.quadraticCurveTo(10, -16, 54, -8);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // 雙手撐地
+    ctx.strokeStyle = '#fff4ee'; ctx.lineWidth = 10; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-30, -26); ctx.lineTo(-52, 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-20, -22); ctx.lineTo(-32, 4); ctx.stroke();
+    // 低垂的頭（肩膀微抖）
+    const sob = Math.sin(t * 9) * 1.6;
+    ctx.fillStyle = '#fff4ee';
+    ctx.beginPath(); ctx.arc(-64, -28 + sob, 30, 0, 7); ctx.fill();
+    // 髮
+    ctx.fillStyle = '#8fe3e8';
+    ctx.beginPath(); ctx.arc(-64, -32 + sob, 33, Math.PI * 0.85, Math.PI * 2.1); ctx.fill();
+    // 馬尾散落在地
+    ctx.beginPath(); ctx.ellipse(-96, -4, 28, 10, 0.45, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-36, 0, 22, 8, -0.3, 0, 7); ctx.fill();
+    // ＞＜ 哭眼
+    ctx.strokeStyle = '#3a4a6b'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-80, -34 + sob); ctx.lineTo(-70, -28 + sob);
+    ctx.moveTo(-80, -22 + sob); ctx.lineTo(-70, -28 + sob);
+    ctx.moveTo(-48, -34 + sob); ctx.lineTo(-58, -28 + sob);
+    ctx.moveTo(-48, -22 + sob); ctx.lineTo(-58, -28 + sob);
+    ctx.stroke();
+    // 眼淚（滴落動畫 + 地上水灘）
+    const drop = (t * 70) % 28;
+    ctx.fillStyle = 'rgba(127,212,255,.9)';
+    ctx.beginPath(); ctx.ellipse(-72, -12 + drop * 0.7, 3.5, 5.5, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(127,212,255,.45)';
+    ctx.beginPath(); ctx.ellipse(-68, 13, 26 + Math.sin(t * 2) * 3, 6, 0, 0, 7); ctx.fill();
+    // murmur「ガッキー...」
+    const dots = '.'.repeat(1 + (((t * 1.4) | 0) % 3));
+    ctx.globalAlpha = 0.65 + Math.sin(t * 3) * 0.25;
+    ctx.fillStyle = '#5b6c92';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.font = '700 26px "Microsoft JhengHei", sans-serif';
+    ctx.fillText(`ガッキー${dots}`, -28, -86);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
   // ---------- 肉塊 ----------
   function drawMeat(x, y, scale, hpRatio, squash, t) {
     ctx.save();
@@ -854,36 +1016,48 @@
   // ===========================================================
   //  結算
   // ===========================================================
+  const WIN_SCORE = 4000; // 勝利門檻（A 級以上）
   const ResultScene = {
-    t: 0, rank: 'C', isNewHigh: false,
+    t: 0, rank: 'C', isNewHigh: false, win: false,
     enter() {
       this.t = 0;
       this.isNewHigh = G.score > G.high;
       if (this.isNewHigh) { G.high = G.score | 0; localStorage.setItem('kanata_high', String(G.high)); }
       const s = G.score;
       this.rank = s >= 6000 ? 'S' : s >= 4000 ? 'A' : s >= 2200 ? 'B' : 'C';
-      burst(W/2, 220, '#ffd24a', 40);
+      this.win = s >= WIN_SCORE;
+      burst(W/2, 220, this.win ? '#ffd24a' : '#9fb3d9', 40);
       button(W / 2 - 110, 460, 220, 64, '再來一次', () => { G.score = 0; G.levelIndex = 0; setScene(LEVELS[0]()); });
-      Audio.clear();
+      if (this.win) Audio.clear(); else Audio.miss();
     },
     update(dt) { this.t += dt; },
     render() {
       drawBackground(this.t);
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.font = '900 54px "Microsoft JhengHei", sans-serif';
-      ctx.fillStyle = '#ff6fa5'; ctx.fillText('結算', W / 2, 90);
+      ctx.fillStyle = '#ff6fa5'; ctx.fillText('結算', W / 2, 70);
+      // 勝敗橫幅
+      ctx.font = '900 30px "Microsoft JhengHei", sans-serif';
+      ctx.fillStyle = this.win ? '#e0a32e' : '#5b6c92';
+      ctx.fillText(this.win ? 'WINNER！握力 60KG 全開！' : '敗北………', W / 2, 125);
       // 評價
       const rc = { S: '#ffd24a', A: '#7CFFB0', B: '#7CCBFF', C: '#c9c9c9' }[this.rank];
-      ctx.font = '900 130px "Microsoft JhengHei", sans-serif';
+      ctx.font = '900 120px "Microsoft JhengHei", sans-serif';
       ctx.fillStyle = rc;
-      ctx.fillText(this.rank, W / 2, 230);
-      ctx.font = '900 40px "Microsoft JhengHei", sans-serif';
+      ctx.fillText(this.rank, W / 2 + 150, 250);
+      ctx.font = '900 38px "Microsoft JhengHei", sans-serif';
       ctx.fillStyle = '#2a3b5c';
-      ctx.fillText(`總分 ${G.score | 0}`, W / 2, 340);
+      ctx.fillText(`總分 ${G.score | 0}`, W / 2 + 150, 345);
       ctx.font = '700 22px "Microsoft JhengHei", sans-serif';
       ctx.fillStyle = this.isNewHigh ? '#ff6fa5' : '#3a4a6b';
-      ctx.fillText(this.isNewHigh ? '★ 新紀錄！ ★' : `最高分 ${G.high}`, W / 2, 400);
-      drawAngel(150, 420, this.t, Math.abs(Math.sin(this.t*4))*0.6, Math.abs(Math.cos(this.t*4))*0.6);
+      ctx.fillText(this.isNewHigh ? '★ 新紀錄！ ★' : `最高分 ${G.high}`, W / 2 + 150, 400);
+      // 勝敗演出（左側舞台）
+      if (this.win) {
+        drawAngelVictory(230, 300, this.t);
+        drawGripper(390, 330, this.t);
+      } else {
+        drawAngelDefeat(250, 390, this.t);
+      }
     }
   };
 
