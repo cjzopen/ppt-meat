@@ -28,6 +28,24 @@
   const rand = (a, b) => a + Math.random() * (b - a);
   const choice = (arr) => arr[(Math.random() * arr.length) | 0];
   const now = () => performance.now();
+  function loadOptionalImage(src) {
+    const img = new Image();
+    img.src = src;
+    return img;
+  }
+  const EndingImages = {
+    win: loadOptionalImage('images/kanata-ending-win.png'),
+    lose: loadOptionalImage('images/kanata-ending-lose.png'),
+  };
+  function drawEndingImage(key, cx, bottomY, maxW, maxH) {
+    const img = EndingImages[key];
+    if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) return false;
+    const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight);
+    const w = img.naturalWidth * scale;
+    const h = img.naturalHeight * scale;
+    ctx.drawImage(img, cx - w / 2, bottomY - h, w, h);
+    return true;
+  }
 
   // ---------- 音效（WebAudio 合成，無音檔） ----------
   const Audio = {
@@ -1053,9 +1071,11 @@
       ctx.fillText(this.isNewHigh ? '★ 新紀錄！ ★' : `最高分 ${G.high}`, W / 2 + 150, 400);
       // 勝敗演出（左側舞台）
       if (this.win) {
-        drawAngelVictory(230, 300, this.t);
-        drawGripper(390, 330, this.t);
-      } else {
+        if (!drawEndingImage('win', 240, 545, 360, 360)) {
+          drawAngelVictory(230, 300, this.t);
+          drawGripper(390, 330, this.t);
+        }
+      } else if (!drawEndingImage('lose', 250, 520, 390, 320)) {
         drawAngelDefeat(250, 390, this.t);
       }
     }
