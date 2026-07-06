@@ -108,6 +108,7 @@
   window.addEventListener('keydown', (e) => {
     if (PREVENT_KEYS.has(e.code)) e.preventDefault();   // 防空白鍵 / 方向鍵捲動
     if (e.repeat) return;                                // 不吃長按連發
+    Audio.init();                                        // 鍵盤開局也要解鎖 WebAudio
     Input.down.add(e.code);
     Input.keyEvents.push({ code: e.code });
     if (HIT_KEYS[e.code]) Input.hits.push({ hand: HIT_KEYS[e.code] });
@@ -204,6 +205,39 @@
         ctx.fillStyle = p.color;
         ctx.fillText(line, p.x, ly);
       });
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Emoji 粒子（QTE 成功時 💪 飄揚）
+  const emojiFx = [];
+  function emojiBurst(char, n) {
+    for (let i = 0; i < (n || 16); i++) {
+      const life = rand(1.1, 1.9);
+      emojiFx.push({
+        char, x: rand(80, W - 80), y: rand(H * 0.5, H + 30),
+        vy: rand(110, 230), sway: rand(18, 46), ph: rand(0, Math.PI * 2),
+        rot: rand(-0.4, 0.4), size: rand(26, 54), life, max: life,
+      });
+    }
+  }
+  function updateEmojiFx(dt) {
+    for (let i = emojiFx.length - 1; i >= 0; i--) {
+      const e = emojiFx[i];
+      e.life -= dt; if (e.life <= 0) { emojiFx.splice(i, 1); continue; }
+      e.y -= e.vy * dt; e.ph += dt * 3;
+    }
+  }
+  function drawEmojiFx() {
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const e of emojiFx) {
+      ctx.save();
+      ctx.globalAlpha = clamp(e.life / e.max * 1.6, 0, 1);
+      ctx.translate(e.x + Math.sin(e.ph) * e.sway, e.y);
+      ctx.rotate(e.rot + Math.sin(e.ph * 0.8) * 0.15);
+      ctx.font = `${e.size}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+      ctx.fillText(e.char, 0, 0);
+      ctx.restore();
     }
     ctx.globalAlpha = 1;
   }
@@ -625,12 +659,15 @@
   }
   function drawHUD() {
     drawTextBox(24, 18, '分數', String(G.score | 0), 'left');
-    drawTextBox(W - 24, 18, '關卡', `${G.levelIndex + 1} / ${LEVELS.length}`, 'right');
+    if (G.mode === 'single') drawTextBox(W - 24, 18, '單關挑戰', `肉 ${G.singleHp}KG`, 'right');
+    else drawTextBox(W - 24, 18, '關卡', `${G.levelIndex + 1} / ${LEVELS.length}`, 'right');
   }
   // 簡易按鈕（Canvas 命中測試）
   const buttons = [];
-  function button(x, y, w, h, label, onClick) {
-    buttons.push({ x, y, w, h, label, onClick });
+  function button(x, y, w, h, label, onClick, fs) {
+    const b = { x, y, w, h, label, onClick, fs: fs || 26 };
+    buttons.push(b);
+    return b;
   }
   function drawButtons(t) {
     for (const b of buttons) {
@@ -641,7 +678,7 @@
       roundRect(b.x, b.y + b.h - 6, b.w, 6, 16); ctx.fill();
       ctx.fillStyle = '#fff';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = '900 26px "Microsoft JhengHei", sans-serif';
+      ctx.font = `900 ${b.fs}px "Microsoft JhengHei", sans-serif`;
       ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 - 2 + (hover ? 1 : 0));
     }
   }
@@ -674,10 +711,14 @@
   // ===========================================================
   //  遊戲狀態 + 場景管理
   // ===========================================================
+  const HP_OPTIONS = [60, 100, 300];
   const G = {
     score: 0,
     levelIndex: 0,
+    mode: 'run', // 'run' = 全關卡挑戰；'single' = 單關挑戰
     high: Number(localStorage.getItem('kanata_high') || 0),
+    singleHp: HP_OPTIONS.includes(Number(localStorage.getItem('kanata_hp')))
+      ? Number(localStorage.getItem('kanata_hp')) : 100,
   };
 
   let scene = null;
@@ -735,6 +776,7 @@
         G.score += bonus;
         pop(MEAT_X, MEAT_Y - 80, 'QTE 成功!', '#ffd24a', 46);
         hitMeatFx(true); hitMeatFx(true);
+        emojiBurst('💪', 22);
       } else {
         pop(MEAT_X, MEAT_Y - 80, 'QTE 失敗…', '#7aa7ff', 40);
         Audio.miss();
@@ -769,11 +811,25 @@
     t: 0,
     enter() {
       this.t = 0;
-      button(W / 2 - 110, 430, 220, 70, '開打！', () => {
+      button(W / 2 - 110, 408, 220, 62, '開打！', () => {
         Audio.init();
-        G.score = 0; G.levelIndex = 0;
+        G.score = 0; G.levelIndex = 0; G.mode = 'run';
         setScene(LEVELS[0]());
       });
+      // 單關挑戰：三關獨立玩，可調肉的血量（各組合分開記最高分）
+      const startSingle = (i) => {
+        Audio.init();
+        G.score = 0; G.levelIndex = i; G.mode = 'single';
+        setScene(LEVELS[i]());
+      };
+      button(W / 2 - 281, 505, 128, 48, '①連打', () => startSingle(0), 22);
+      button(W / 2 - 143, 505, 128, 48, '②連擊', () => startSingle(1), 22);
+      button(W / 2 - 5, 505, 128, 48, '③節奏', () => startSingle(2), 22);
+      const hpBtn = button(W / 2 + 133, 505, 148, 48, `肉 ${G.singleHp}KG`, () => {
+        G.singleHp = HP_OPTIONS[(HP_OPTIONS.indexOf(G.singleHp) + 1) % HP_OPTIONS.length];
+        localStorage.setItem('kanata_hp', String(G.singleHp));
+        hpBtn.label = `肉 ${G.singleHp}KG`;
+      }, 20);
     },
     update(dt) { this.t += dt; },
     render() {
@@ -789,6 +845,9 @@
       ctx.fillStyle = '#3a4a6b';
       ctx.fillText('F / 左鍵 = 左手　　J / 右鍵 = 右手', W / 2, 150);
       ctx.fillText(`最高分：${G.high}`, W / 2, 390);
+      ctx.font = '700 16px "Microsoft JhengHei", sans-serif';
+      ctx.fillStyle = '#5b6c92';
+      ctx.fillText('單關挑戰：獨立計分拚紀錄，可調肉的血量', W / 2, 490);
     }
   };
 
@@ -796,10 +855,11 @@
   //  第1關：連打地獄（在限時內把肉打到 0）
   // ===========================================================
   function Level1() {
+    const maxhp = G.mode === 'single' ? G.singleHp : 100;
     return {
-      name: '連打地獄', t: 0, time: 18, hp: 100, maxhp: 100,
+      name: '連打地獄', t: 0, time: 18, hp: maxhp, maxhp,
       squash: 0, qteFired: false, done: false, hits: 0, combo: 0,
-      enter() { pop(MEAT_X, MEAT_Y - 120, 'STAGE 1\n連打！', '#fff', 38); },
+      enter() { this.score0 = G.score | 0; pop(MEAT_X, MEAT_Y - 120, 'STAGE 1\n連打！', '#fff', 38); },
       update(dt) {
         this.t += dt;
         if (QTE.active) { QTE.update(dt); return; }
@@ -807,7 +867,7 @@
         this.squash = Math.max(0, this.squash - dt * 5);
 
         // 隨機觸發一次 QTE（剩約一半血時）
-        if (!this.qteFired && this.hp < 60) {
+        if (!this.qteFired && this.hp < this.maxhp * 0.6) {
           this.qteFired = true;
           QTE.start(() => {});
           return;
@@ -836,7 +896,14 @@
         if (cleared) { G.score += 500 + Math.ceil(this.time) * 30; pop(MEAT_X, MEAT_Y - 80, 'KO！', '#ffd24a', 60); Audio.clear(); }
         else pop(MEAT_X, MEAT_Y - 80, '時間到', '#7aa7ff', 44);
         shake(16);
-        setTimeout(() => nextLevel(), 1100);
+        endStage(1100, {
+          stage: 0,
+          stageScore: (G.score | 0) - this.score0,
+          lines: [
+            `出拳 ${this.hits} 次`,
+            cleared ? `KO！剩餘 ${Math.ceil(this.time)} 秒` : '時間到…肉撐住了',
+          ],
+        });
       },
       render() {
         drawBackground(this.t);
@@ -858,11 +925,13 @@
   //  第2關：連擊不斷（節拍窗口內命中累積 Combo）
   // ===========================================================
   function Level2() {
+    const maxhp = G.mode === 'single' ? G.singleHp : 0; // 單關模式才有血條
     return {
       name: '連擊不斷', t: 0, beatT: 0, period: 0.62, ring: 0,
       combo: 0, maxCombo: 0, hits: 0, totalBeats: 28, beatCount: 0,
       qteFired: false, done: false, windowOpen: false, squash: 0,
-      enter() { pop(MEAT_X, MEAT_Y - 120, 'STAGE 2\n連擊！', '#fff', 38); },
+      hp: maxhp, maxhp, ko: 0,
+      enter() { this.score0 = G.score | 0; pop(MEAT_X, MEAT_Y - 120, 'STAGE 2\n連擊！', '#fff', 38); },
       update(dt) {
         this.t += dt;
         if (QTE.active) { QTE.update(dt); return; }
@@ -882,6 +951,7 @@
             G.score += perfect ? 60 : 35;
             pop(MEAT_X, MEAT_Y - 70, perfect ? 'PERFECT' : 'GOOD', perfect ? '#ffd24a' : '#7CFFB0', perfect ? 44 : 36);
             this.squash = 1; hitMeatFx(perfect); perfect ? Audio.perfect() : Audio.good();
+            if (this.maxhp) applyMeatDamage(this, perfect ? 8 : 5);
           } else {
             if (this.combo > 0) pop(MEAT_X, MEAT_Y - 70, 'MISS', '#ff7b7b', 36);
             this.combo = 0; Audio.miss();
@@ -900,14 +970,24 @@
         G.score += this.maxCombo * 20;
         pop(MEAT_X, MEAT_Y - 80, `最高連擊 ${this.maxCombo}`, '#ffd24a', 40);
         Audio.clear(); shake(12);
-        setTimeout(() => nextLevel(), 1200);
+        const lines = [`最高連擊 ${this.maxCombo}`];
+        if (this.maxhp) lines.push(`KO ×${this.ko}`);
+        endStage(1200, { stage: 1, stageScore: (G.score | 0) - this.score0, lines });
       },
       render() {
         drawBackground(this.t);
         drawHUD();
         ctx.textAlign='center'; ctx.font='700 14px "Microsoft JhengHei"'; ctx.fillStyle='#2a3b5c';
         ctx.fillText(`STAGE 2 · 連擊不斷　Combo ${this.combo}`, W/2, 40);
-        drawMeat(MEAT_X, MEAT_Y, 1.45, 0.6, this.squash, this.t);
+        drawMeat(MEAT_X, MEAT_Y, 1.45, this.maxhp ? this.hp / this.maxhp : 0.6, this.squash, this.t);
+        if (this.maxhp) {
+          bar(MEAT_X - 100, MEAT_Y - 168, 200, 14, this.hp / this.maxhp, '#ff5d7a');
+          if (this.ko) {
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.font = '900 18px "Microsoft JhengHei", sans-serif'; ctx.fillStyle = '#e0a32e';
+            ctx.fillText(`KO ×${this.ko}`, MEAT_X + 112, MEAT_Y - 161);
+          }
+        }
         // 收縮環指示（環縮到內圈白點時按）
         const rMax = 130, r = lerp(rMax, 36, this.ring);
         ctx.strokeStyle = this.ring > 0.9 || this.ring < 0.1 ? '#ffd24a' : 'rgba(255,255,255,.8)';
@@ -926,11 +1006,14 @@
   // ===========================================================
   function Level3() {
     const laneX = { L: 330, R: 630 };
+    const maxhp = G.mode === 'single' ? G.singleHp : 0; // 單關模式才有血條
     return {
       name: '節奏打肉', t: 0, notes: [], spawnT: 0, idx: 0, done: false, squash: 0,
       chart: null, hitLineY: 470, judged: 0, totalNotes: 0,
       perfect: 0, good: 0, miss: 0,
+      hp: maxhp, maxhp, ko: 0,
       enter() {
+        this.score0 = G.score | 0;
         pop(MEAT_X, MEAT_Y - 120, 'STAGE 3\n節奏！', '#fff', 38);
         // 產生簡單譜面：時間(秒) + lane
         const ch = []; let tt = 1.2;
@@ -972,6 +1055,7 @@
             if (perfect) { this.perfect++; G.score += 100; pop(laneX[lane], this.hitLineY - 40, 'PERFECT', '#ffd24a', 34); Audio.perfect(); }
             else { this.good++; G.score += 50; pop(laneX[lane], this.hitLineY - 40, 'GOOD', '#7CFFB0', 30); Audio.good(); }
             this.squash = 1; hitMeatFx(perfect);
+            if (this.maxhp) applyMeatDamage(this, perfect ? 8 : 5);
           } else {
             Audio.miss();
           }
@@ -990,7 +1074,9 @@
         G.score += this.perfect * 30;
         pop(MEAT_X, MEAT_Y - 80, `P${this.perfect} G${this.good} M${this.miss}`, '#ffd24a', 36);
         Audio.clear(); shake(12);
-        setTimeout(() => nextLevel(), 1300);
+        const lines = [`PERFECT ${this.perfect}／GOOD ${this.good}／MISS ${this.miss}`];
+        if (this.maxhp) lines.push(`KO ×${this.ko}`);
+        endStage(1300, { stage: 2, stageScore: (G.score | 0) - this.score0, lines });
       },
       render() {
         drawBackground(this.t);
@@ -1018,17 +1104,131 @@
           ctx.beginPath(); ctx.arc(x, n.y, 22, 0, 7); ctx.fill();
           ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
         }
-        drawMeat(MEAT_X, MEAT_Y - 60, 1.0, 0.6, this.squash, this.t);
+        drawMeat(MEAT_X, MEAT_Y - 60, 1.0, this.maxhp ? this.hp / this.maxhp : 0.6, this.squash, this.t);
+        if (this.maxhp) {
+          bar(MEAT_X - 80, MEAT_Y - 150, 160, 12, this.hp / this.maxhp, '#ff5d7a');
+          if (this.ko) {
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.font = '900 18px "Microsoft JhengHei", sans-serif'; ctx.fillStyle = '#e0a32e';
+            ctx.fillText(`KO ×${this.ko}`, MEAT_X + 92, MEAT_Y - 144);
+          }
+        }
         drawFists(this.t);
       }
     };
   }
 
   const LEVELS = [Level1, Level2, Level3];
-  function nextLevel() {
-    G.levelIndex++;
-    if (G.levelIndex < LEVELS.length) setScene(LEVELS[G.levelIndex]());
-    else setScene(ResultScene);
+  const STAGE_INFO = [
+    { name: '連打地獄', tip: 'F / J（或滑鼠左右鍵）狂打！左右交替傷害更高' },
+    { name: '連擊不斷', tip: '白環縮到內圈的瞬間出拳，PERFECT 拿高分' },
+    { name: '節奏打肉', tip: '音符碰到判定線時按：F＝左軌　J＝右軌' },
+  ];
+
+  // 單關模式：打肉扣血，打空 = KO 加分後回滿繼續刷
+  function applyMeatDamage(lv, d) {
+    lv.hp -= d;
+    if (lv.hp > 0) return;
+    lv.hp = lv.maxhp; lv.ko++;
+    G.score += 500;
+    pop(MEAT_X, MEAT_Y - 115, 'KO！+500', '#ffd24a', 44);
+    hitMeatFx(true);
+  }
+
+  // 關卡收尾：全關卡模式插入過場（最後一關直接進結算）；單關模式進單關結算
+  function endStage(delay, summary) {
+    setTimeout(() => {
+      if (G.mode === 'single') { setScene(SingleResultScene(summary)); return; }
+      G.levelIndex++;
+      if (G.levelIndex >= LEVELS.length) setScene(ResultScene);
+      else setScene(InterludeScene(summary));
+    }, delay);
+  }
+
+  // ---------- 關卡間過場：本關小結 + 下一關預告，按任意鍵繼續 ----------
+  function InterludeScene(summary) {
+    return {
+      t: 0,
+      enter() { this.t = 0; },
+      update(dt) {
+        this.t += dt;
+        const pressed = Input.consumeHits().length || Input.consumeKeys().length;
+        if (this.t > 0.8 && pressed) setScene(LEVELS[G.levelIndex]());
+      },
+      render() {
+        drawBackground(this.t);
+        ctx.fillStyle = 'rgba(20,30,55,.35)'; ctx.fillRect(0, 0, W, H);
+        // 小結卡
+        ctx.fillStyle = 'rgba(255,255,255,.94)';
+        roundRect(W / 2 - 270, 78, 540, 440, 24); ctx.fill();
+        ctx.strokeStyle = '#ffd0e2'; ctx.lineWidth = 4;
+        roundRect(W / 2 - 270, 78, 540, 440, 24); ctx.stroke();
+
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = '900 38px "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = '#ff6fa5';
+        ctx.fillText(`STAGE ${summary.stage + 1} 完成！`, W / 2, 132);
+        ctx.font = '900 52px "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = '#e0a32e';
+        ctx.fillText(`+${summary.stageScore}`, W / 2, 198);
+
+        ctx.font = '700 22px "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = '#3a4a6b';
+        summary.lines.forEach((line, i) => ctx.fillText(line, W / 2, 252 + i * 34));
+        ctx.fillStyle = '#5b6c92';
+        ctx.fillText(`目前總分 ${G.score | 0}`, W / 2, 252 + summary.lines.length * 34);
+
+        // 分隔線
+        ctx.strokeStyle = '#ffd0e2'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(W / 2 - 210, 378); ctx.lineTo(W / 2 + 210, 378); ctx.stroke();
+
+        // 下一關預告
+        const next = STAGE_INFO[G.levelIndex];
+        ctx.font = '900 28px "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = '#2a3b5c';
+        ctx.fillText(`NEXT ▶ STAGE ${G.levelIndex + 1}・${next.name}`, W / 2, 412);
+        ctx.font = '700 18px "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = '#5b6c92';
+        ctx.fillText(next.tip, W / 2, 448);
+
+        // 繼續提示（0.8 秒後才收輸入）
+        ctx.globalAlpha = this.t < 0.8 ? 0.25 : 0.55 + Math.sin(this.t * 4) * 0.45;
+        ctx.font = '900 22px "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = '#ff6fa5';
+        ctx.fillText('按任意鍵／點擊畫面 繼續', W / 2, 492);
+        ctx.globalAlpha = 1;
+      }
+    };
+  }
+
+  // ---------- 分享（X intent／Discord 複製分享文） ----------
+  function gameUrl() {
+    return /^https?:$/.test(location.protocol) ? location.href.split(/[?#]/)[0] : '';
+  }
+  function shareToX(text) {
+    const p = new URLSearchParams({ text });
+    const url = gameUrl();
+    if (url) p.set('url', url);
+    window.open('https://twitter.com/intent/tweet?' + p.toString(), '_blank', 'noopener');
+  }
+  function copyShare(text) {
+    const url = gameUrl();
+    const full = text + (url ? '\n' + url : '');
+    const done = () => pop(W / 2, H / 2, '已複製！貼到 Discord 分享吧', '#7CFFB0', 30);
+    const fail = () => pop(W / 2, H / 2, '複製失敗…', '#ff7b7b', 28);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(full).then(done, () => fallbackCopy(full, done, fail));
+    } else fallbackCopy(full, done, fail);
+  }
+  function fallbackCopy(text, done, fail) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy') ? done() : fail(); }
+    catch (e) { fail(); }
+    document.body.removeChild(ta);
   }
 
   // ===========================================================
@@ -1045,8 +1245,15 @@
       this.rank = s >= 6000 ? 'S' : s >= 4000 ? 'A' : s >= 2200 ? 'B' : 'C';
       this.win = s >= WIN_SCORE;
       burst(W/2, 220, this.win ? '#ffd24a' : '#9fb3d9', 40);
-      button(W / 2 - 110, 460, 220, 64, '再來一次', () => { G.score = 0; G.levelIndex = 0; setScene(LEVELS[0]()); });
+      button(500, 435, 200, 52, '再來一次', () => { G.score = 0; G.levelIndex = 0; G.mode = 'run'; setScene(LEVELS[0]()); }, 24);
+      button(710, 435, 200, 52, '回標題', () => setScene(TitleScene), 24);
+      button(500, 497, 200, 52, '分享到 X', () => shareToX(this.shareText()), 22);
+      button(710, 497, 200, 52, 'Discord 分享文', () => copyShare(this.shareText()), 19);
       if (this.win) Audio.clear(); else Audio.miss();
+    },
+    shareText() {
+      const flavor = this.win ? '，握力 60KG 全開💪' : '💪';
+      return `我在「天音彼方 打肉！」拿到 ${G.score | 0} 分・${this.rank} 級${flavor} #天音彼方打肉`;
     },
     update(dt) { this.t += dt; },
     render() {
@@ -1081,6 +1288,51 @@
     }
   };
 
+  // ---------- 單關挑戰結算（關卡 × 血量 各自記最高分） ----------
+  function SingleResultScene(summary) {
+    const stage = summary.stage;
+    const info = STAGE_INFO[stage];
+    const bestKey = `kanata_best_s${stage + 1}_${G.singleHp}`;
+    return {
+      t: 0, best: 0, isNew: false,
+      enter() {
+        this.t = 0;
+        this.best = Number(localStorage.getItem(bestKey) || 0);
+        this.isNew = (G.score | 0) > this.best;
+        if (this.isNew) { this.best = G.score | 0; localStorage.setItem(bestKey, String(this.best)); }
+        burst(W / 2, 200, '#ffd24a', 36);
+        Audio.clear();
+        button(W / 2 - 230, 440, 220, 54, '再挑戰', () => { G.score = 0; setScene(LEVELS[stage]()); }, 24);
+        button(W / 2 + 10, 440, 220, 54, '回標題', () => setScene(TitleScene), 24);
+        button(W / 2 - 230, 505, 220, 50, '分享到 X', () => shareToX(this.shareText()), 22);
+        button(W / 2 + 10, 505, 220, 50, 'Discord 分享文', () => copyShare(this.shareText()), 19);
+      },
+      shareText() {
+        return `我在「天音彼方 打肉！」單關挑戰 STAGE ${stage + 1}・${info.name}（肉血量 ${G.singleHp}KG）打出 ${G.score | 0} 分！💪 #天音彼方打肉`;
+      },
+      update(dt) { this.t += dt; },
+      render() {
+        drawBackground(this.t);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = '900 46px "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = '#ff6fa5';
+        ctx.fillText('單關挑戰 結算', W / 2, 66);
+        ctx.font = '900 26px "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = '#2a3b5c';
+        ctx.fillText(`STAGE ${stage + 1}・${info.name}　肉血量 ${G.singleHp}KG`, W / 2, 122);
+        ctx.font = '900 64px "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = '#e0a32e';
+        ctx.fillText(`${G.score | 0} 分`, W / 2, 210);
+        ctx.font = '700 24px "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = '#3a4a6b';
+        summary.lines.forEach((line, i) => ctx.fillText(line, W / 2, 278 + i * 38));
+        ctx.font = '700 24px "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = this.isNew ? '#ff6fa5' : '#5b6c92';
+        ctx.fillText(this.isNew ? '★ 新紀錄！ ★' : `此設定最佳 ${this.best}`, W / 2, 390);
+      }
+    };
+  }
+
   function bar(x, y, w, h, ratio, color) {
     ctx.fillStyle = 'rgba(255,255,255,.55)';
     roundRect(x, y, w, h, h / 2); ctx.fill();
@@ -1101,6 +1353,7 @@
       if (scene && scene.update) scene.update(dt);
       updateAngel(dt);
       updateParticles(dt);
+      updateEmojiFx(dt);
       updatePops(dt);
       if (shakeT > 0) shakeT -= dt;
     }
@@ -1113,6 +1366,7 @@
     }
     if (scene && scene.render) scene.render();
     drawParticles();
+    drawEmojiFx();
     drawPops();
     drawButtons(t / 1000);
     ctx.restore();
