@@ -1375,34 +1375,69 @@
     };
   }
 
-  // ---------- 分享（X intent／Discord 複製分享文） ----------
+  // ---------- 分享（結算畫面截圖 → Twitter／剪貼簿／下載／系統分享面板） ----------
   function gameUrl() {
     return /^https?:$/.test(location.protocol) ? location.href.split(/[?#]/)[0] : '';
   }
-  function shareToX(text) {
+  // 重畫一幀乾淨的結算畫面（不含按鈕/圖示），蓋上 hashtag 浮水印後輸出 PNG
+  function captureResultBlob() {
+    return new Promise((resolve, reject) => {
+      if (scene && scene.render) scene.render();
+      ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+      ctx.font = '700 16px "Microsoft JhengHei", sans-serif';
+      ctx.fillStyle = 'rgba(42,59,92,.55)';
+      ctx.fillText('#天音彼方打肉', W - 16, H - 10);
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error('capture failed')), 'image/png');
+    });
+  }
+  async function copyResultImage() {
+    const blob = await captureResultBlob();
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+  }
+  // Twitter web intent 不能夾圖：先把圖塞進剪貼簿，開推文視窗後請玩家 Ctrl+V
+  async function shareToTwitter(text) {
+    let copied = false;
+    try { await copyResultImage(); copied = true; } catch (e) {}
     const p = new URLSearchParams({ text });
     const url = gameUrl();
     if (url) p.set('url', url);
-    window.open('https://twitter.com/intent/tweet?' + p.toString(), '_blank', 'noopener');
+    const w = window.open('https://twitter.com/intent/tweet?' + p.toString(), '_blank', 'noopener');
+    if (copied) pop(W / 2, H / 2, '結算圖已複製，推文裡 Ctrl+V 貼圖', '#7CFFB0', 26);
+    else pop(W / 2, H / 2, '圖片複製失敗，改用「下載紀念卡」', '#ff7b7b', 24);
+    if (!w) pop(W / 2, H / 2 + 44, '彈窗被瀏覽器擋下，請允許後重試', '#ffd24a', 22);
   }
-  function copyShare(text) {
-    const url = gameUrl();
-    const full = text + (url ? '\n' + url : '');
-    const done = () => pop(W / 2, H / 2, '已複製！貼到 Discord 分享吧', '#7CFFB0', 30);
-    const fail = () => pop(W / 2, H / 2, '複製失敗…', '#ff7b7b', 28);
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(full).then(done, () => fallbackCopy(full, done, fail));
-    } else fallbackCopy(full, done, fail);
+  function copyImageForDiscord() {
+    copyResultImage()
+      .then(() => pop(W / 2, H / 2, '已複製！貼到 Discord 就是圖', '#7CFFB0', 28))
+      .catch(() => {
+        downloadResultImage();
+        pop(W / 2, H / 2 + 44, '剪貼簿不支援，改下載給你', '#ffd24a', 22);
+      });
   }
-  function fallbackCopy(text, done, fail) {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy') ? done() : fail(); }
-    catch (e) { fail(); }
-    document.body.removeChild(ta);
+  function downloadResultImage() {
+    captureResultBlob().then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `kanata-uchiniku-${G.score | 0}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      pop(W / 2, H / 2, '紀念卡已下載', '#7CFFB0', 28);
+    }).catch(() => pop(W / 2, H / 2, '截圖失敗…', '#ff7b7b', 26));
+  }
+  // 行動裝置：系統分享面板可直接帶圖（Twitter/Discord/LINE 通吃）
+  // 注意：桌機 Chrome 也回報支援（Windows 分享面板），但那裡通常沒有 Twitter/Discord，
+  // 所以只在觸控環境走系統面板，桌機一律用 Twitter/複製圖按鈕
+  function canSystemShare() {
+    if (!touchMode || !navigator.canShare) return false;
+    try {
+      return navigator.canShare({ files: [new File([new Uint8Array(8)], 't.png', { type: 'image/png' })] });
+    } catch (e) { return false; }
+  }
+  function systemShare(text) {
+    captureResultBlob().then(blob => {
+      const file = new File([blob], `kanata-uchiniku-${G.score | 0}.png`, { type: 'image/png' });
+      return navigator.share({ files: [file], text: text + (gameUrl() ? '\n' + gameUrl() : '') });
+    }).catch(() => {}); // 玩家取消分享也會 reject，安靜略過
   }
 
   // ===========================================================
@@ -1419,10 +1454,16 @@
       this.rank = s >= 6000 ? 'S' : s >= 4000 ? 'A' : s >= 2200 ? 'B' : 'C';
       this.win = s >= WIN_SCORE;
       burst(W/2, 220, this.win ? '#ffd24a' : '#9fb3d9', 40);
-      button(500, 435, 200, 52, '再來一次', () => { G.score = 0; G.levelIndex = 0; G.mode = 'run'; setScene(LEVELS[0]()); }, 24);
-      button(710, 435, 200, 52, '回標題', () => setScene(TitleScene), 24);
-      button(500, 497, 200, 52, '分享到 X', () => shareToX(this.shareText()), 22);
-      button(710, 497, 200, 52, 'Discord 分享文', () => copyShare(this.shareText()), 19);
+      button(500, 425, 200, 46, '再來一次', () => { G.score = 0; G.levelIndex = 0; G.mode = 'run'; setScene(LEVELS[0]()); }, 22);
+      button(710, 425, 200, 46, '回標題', () => setScene(TitleScene), 22);
+      if (canSystemShare()) { // 行動裝置：系統面板直接帶圖
+        button(500, 477, 200, 46, '分享（帶圖）', () => systemShare(this.shareText()), 20);
+        button(710, 477, 200, 46, '下載紀念卡', downloadResultImage, 20);
+      } else {
+        button(500, 477, 200, 46, '分享到 Twitter', () => shareToTwitter(this.shareText()), 18);
+        button(710, 477, 200, 46, '複製結算圖', copyImageForDiscord, 20);
+        button(500, 529, 410, 44, '下載紀念卡', downloadResultImage, 20);
+      }
       if (this.win) Audio.clear(); else Audio.miss();
     },
     shareText() {
@@ -1476,10 +1517,16 @@
         if (this.isNew) { this.best = G.score | 0; localStorage.setItem(bestKey, String(this.best)); }
         burst(W / 2, 200, '#ffd24a', 36);
         Audio.clear();
-        button(W / 2 - 230, 440, 220, 54, '再挑戰', () => { G.score = 0; setScene(LEVELS[stage]()); }, 24);
-        button(W / 2 + 10, 440, 220, 54, '回標題', () => setScene(TitleScene), 24);
-        button(W / 2 - 230, 505, 220, 50, '分享到 X', () => shareToX(this.shareText()), 22);
-        button(W / 2 + 10, 505, 220, 50, 'Discord 分享文', () => copyShare(this.shareText()), 19);
+        button(W / 2 - 230, 418, 220, 46, '再挑戰', () => { G.score = 0; setScene(LEVELS[stage]()); }, 22);
+        button(W / 2 + 10, 418, 220, 46, '回標題', () => setScene(TitleScene), 22);
+        if (canSystemShare()) {
+          button(W / 2 - 230, 470, 220, 46, '分享（帶圖）', () => systemShare(this.shareText()), 20);
+          button(W / 2 + 10, 470, 220, 46, '下載紀念卡', downloadResultImage, 20);
+        } else {
+          button(W / 2 - 230, 470, 220, 46, '分享到 Twitter', () => shareToTwitter(this.shareText()), 18);
+          button(W / 2 + 10, 470, 220, 46, '複製結算圖', copyImageForDiscord, 20);
+          button(W / 2 - 230, 522, 460, 44, '下載紀念卡', downloadResultImage, 20);
+        }
       },
       shareText() {
         return `我在「天音彼方 打肉！」單關挑戰 STAGE ${stage + 1}・${info.name}（肉血量 ${G.singleHp}KG）打出 ${G.score | 0} 分！💪 #天音彼方打肉`;
