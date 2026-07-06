@@ -128,8 +128,6 @@
     Audio.init();                                        // 鍵盤開局也要解鎖 WebAudio
     touchMode = false;
     if (e.code === 'KeyM') { Audio.toggleMute(); return; } // 靜音鍵不進輸入佇列（避免誤觸 QTE）
-    if (e.code === 'Escape' || e.code === 'KeyP') { menuPaused ? closePause() : openPause(); return; }
-    if (menuPaused) return; // 暫停中不吃遊戲輸入
     Input.down.add(e.code);
     Input.keyEvents.push({ code: e.code });
     if (HIT_KEYS[e.code]) Input.hits.push({ hand: HIT_KEYS[e.code] });
@@ -755,8 +753,6 @@
       const hover = pointer.x >= b.x && pointer.x <= b.x + b.w && pointer.y >= b.y && pointer.y <= b.y + b.h;
       ctx.fillStyle = hover ? '#ff7bb0' : '#ff9ec7';
       roundRect(b.x, b.y, b.w, b.h, 16); ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,.12)';
-      roundRect(b.x, b.y + b.h - 6, b.w, 6, 16); ctx.fill();
       ctx.fillStyle = '#fff';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.font = `900 ${b.fs}px "Microsoft JhengHei", sans-serif`;
@@ -795,27 +791,6 @@
     }
   }
   icon(W - 66, 86, 44, 40, () => Audio.muted ? '🔇' : '🔊', () => Audio.toggleMute());
-  const pauseIcon = icon(W - 116, 86, 44, 40, '⏸', () => menuPaused ? closePause() : openPause());
-  pauseIcon.visible = () => !!(scene && scene.name); // 只在關卡中顯示
-
-  // ---------- 手動暫停（X4）：ESC / P / ⏸ 圖示 ----------
-  let menuPaused = false;
-  function openPause() {
-    if (menuPaused || !scene || !scene.name) return; // 只有關卡能暫停
-    menuPaused = true;
-    button(W / 2 - 110, 250, 220, 56, '繼續', closePause, 24);
-    button(W / 2 - 110, 318, 220, 56, '重來本關', () => {
-      menuPaused = false;
-      G.score = scene.score0 || 0; // 分數退回本關開始時
-      setScene(LEVELS[G.levelIndex]());
-    }, 24);
-    button(W / 2 - 110, 386, 220, 56, '回標題', () => { menuPaused = false; setScene(TitleScene); }, 24);
-  }
-  function closePause() {
-    menuPaused = false;
-    buttons.length = 0; // 關卡中沒有其他按鈕，直接清掉暫停選單
-    Input.clear();
-  }
 
   // 指標座標（換算到 960x600 邏輯座標）
   const pointer = { x: -1, y: -1, clicked: false };
@@ -828,6 +803,8 @@
   });
   canvas.addEventListener('click', (e) => {
     const p = toLogical(e.clientX, e.clientY);
+    const ic = iconAt(p.x, p.y);
+    if (ic) { ic.onClick(); return; } // 常駐圖示（喇叭）
     for (const b of buttons) {
       if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { b.onClick(); break; }
     }
@@ -1335,7 +1312,6 @@
   // 關卡收尾：全關卡模式插入過場（最後一關直接進結算）；單關模式進單關結算
   function endStage(delay, summary) {
     setTimeout(() => {
-      if (menuPaused) closePause(); // 結算瞬間開著暫停選單的話先收掉
       if (G.mode === 'single') { setScene(SingleResultScene(summary)); return; }
       G.levelIndex++;
       if (G.levelIndex >= LEVELS.length) setScene(ResultScene);
@@ -1547,7 +1523,7 @@
     let dt = (t - lastT) / 1000; lastT = t;
     dt = Math.min(dt, 0.05); // 防分頁切回時 dt 爆衝
 
-    if (!paused && !menuPaused) {
+    if (!paused) {
       if (hitstopT > 0) {
         hitstopT -= dt; // 凍幀：整個世界停 40ms，放大爆擊重量感
       } else {
@@ -1563,7 +1539,7 @@
 
     // 渲染
     ctx.save();
-    if (shakeT > 0 && !menuPaused) {
+    if (shakeT > 0) {
       const m = shakeMag * (shakeT / 0.18);
       ctx.translate(rand(-m, m), rand(-m, m));
     }
@@ -1571,12 +1547,6 @@
     drawParticles();
     drawEmojiFx();
     drawPops();
-    if (menuPaused) { // 暫停選單：壓暗＋標題，按鈕蓋在上面
-      ctx.fillStyle = 'rgba(20,30,55,.55)'; ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = '900 44px "Microsoft JhengHei", sans-serif';
-      ctx.fillText('暫停', W / 2, 180);
-    }
     drawButtons(t / 1000);
     ctx.restore();
     if (flashT > 0) { // 爆擊白閃
