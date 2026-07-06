@@ -213,20 +213,22 @@
   }
 
   const popTexts = [];
-  function pop(x, y, text, color, size) {
-    popTexts.push({ x, y, text, color: color || '#fff', size: size || 40, life: 0.9, max: 0.9 });
+  function pop(x, y, text, color, size, life) {
+    popTexts.push({ x, y, text, color: color || '#fff', size: size || 40, life: life || 0.9, max: life || 0.9 });
   }
   function updatePops(dt) {
     for (let i = popTexts.length - 1; i >= 0; i--) {
-      const p = popTexts[i]; p.life -= dt; p.y -= 50 * dt;
+      const p = popTexts[i]; p.life -= dt;
+      if (p.max <= 1.5) p.y -= 50 * dt; // 長效提示（>1.5s）站住不飄
       if (p.life <= 0) popTexts.splice(i, 1);
     }
   }
   function drawPops() {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const p of popTexts) {
-      const k = p.life / p.max;
-      const scale = 1 + (1 - k) * 0.4;
+      // 長效提示：全程不縮放、最後 0.6 秒才淡出
+      const k = p.max > 1.5 ? clamp(p.life / 0.6, 0, 1) : p.life / p.max;
+      const scale = p.max > 1.5 ? 1 : 1 + (1 - k) * 0.4;
       ctx.globalAlpha = clamp(k * 1.4, 0, 1);
       ctx.font = `900 ${p.size * scale}px "Microsoft JhengHei", sans-serif`;
       ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,.35)';
@@ -1394,17 +1396,26 @@
     const blob = await captureResultBlob();
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
   }
-  // Twitter web intent 不能夾圖：先把圖塞進剪貼簿，開推文視窗後請玩家 Ctrl+V
+  // Twitter web intent 不能夾圖：先把圖塞進剪貼簿並讓玩家看到提示，再開推文視窗
   async function shareToTwitter(text) {
     let copied = false;
     try { await copyResultImage(); copied = true; } catch (e) {}
     const p = new URLSearchParams({ text });
     const url = gameUrl();
     if (url) p.set('url', url);
-    const w = window.open('https://twitter.com/intent/tweet?' + p.toString(), '_blank', 'noopener');
-    if (copied) pop(W / 2, H / 2, '結算圖已複製，推文裡 Ctrl+V 貼圖', '#7CFFB0', 26);
-    else pop(W / 2, H / 2, '圖片複製失敗，改用「下載紀念卡」', '#ff7b7b', 24);
-    if (!w) pop(W / 2, H / 2 + 44, '彈窗被瀏覽器擋下，請允許後重試', '#ffd24a', 22);
+    const intent = 'https://twitter.com/intent/tweet?' + p.toString();
+    const openIntent = () => {
+      const w = window.open(intent, '_blank', 'noopener');
+      if (!w) pop(W / 2, H * 0.68, '彈窗被瀏覽器擋下，請允許後重試', '#ffd24a', 24, 2.4);
+    };
+    if (copied) {
+      // 提示先亮 1.8 秒再切視窗，玩家才來得及看到「要 Ctrl+V」
+      pop(W / 2, H * 0.6, '結算圖已複製！\n到推文視窗按 Ctrl+V 貼圖', '#7CFFB0', 30, 3);
+      setTimeout(openIntent, 1800);
+    } else {
+      pop(W / 2, H * 0.6, '圖片複製失敗，改用「下載紀念卡」', '#ff7b7b', 24, 2.4);
+      openIntent();
+    }
   }
   function copyImageForDiscord() {
     copyResultImage()
@@ -1534,6 +1545,8 @@
       update(dt) { this.t += dt; },
       render() {
         drawBackground(this.t);
+        // 完賽＝勝利，左側放舉拳立繪（PNG 沒載到就略過，不擋版面）
+        drawEndingImage('win', 145, 585, 230, 320);
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.font = '900 46px "Microsoft JhengHei", sans-serif';
         ctx.fillStyle = '#ff6fa5';
