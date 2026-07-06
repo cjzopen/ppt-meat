@@ -50,10 +50,22 @@
   // ---------- 音效（WebAudio 合成，無音檔） ----------
   const Audio = {
     ctx: null,
+    master: null,
+    muted: localStorage.getItem('kanata_mute') === '1',
+    volume: 0.8, // 合成音偏尖，總線先壓 20%
     init() {
       if (this.ctx) return;
       const AC = window.AudioContext || window.webkitAudioContext;
-      if (AC) this.ctx = new AC();
+      if (!AC) return;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : this.volume;
+      this.master.connect(this.ctx.destination);
+    },
+    toggleMute() {
+      this.muted = !this.muted;
+      localStorage.setItem('kanata_mute', this.muted ? '1' : '0');
+      if (this.master) this.master.gain.value = this.muted ? 0 : this.volume;
     },
     tone(freq, dur, type, gain, slideTo) {
       if (!this.ctx) return;
@@ -65,7 +77,7 @@
       if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
       g.gain.setValueAtTime(gain || 0.2, t0);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      osc.connect(g).connect(this.ctx.destination);
+      osc.connect(g).connect(this.master);
       osc.start(t0);
       osc.stop(t0 + dur);
     },
@@ -80,7 +92,7 @@
       const g = this.ctx.createGain();
       g.gain.value = gain || 0.25;
       src.buffer = buf;
-      src.connect(g).connect(this.ctx.destination);
+      src.connect(g).connect(this.master);
       src.start(t0);
     },
     punch() { this.noise(0.08, 0.3); this.tone(140, 0.12, 'square', 0.18, 60); },
@@ -115,6 +127,9 @@
     if (e.repeat) return;                                // 不吃長按連發
     Audio.init();                                        // 鍵盤開局也要解鎖 WebAudio
     touchMode = false;
+    if (e.code === 'KeyM') { Audio.toggleMute(); return; } // 靜音鍵不進輸入佇列（避免誤觸 QTE）
+    if (e.code === 'Escape' || e.code === 'KeyP') { menuPaused ? closePause() : openPause(); return; }
+    if (menuPaused) return; // 暫停中不吃遊戲輸入
     Input.down.add(e.code);
     Input.keyEvents.push({ code: e.code });
     if (HIT_KEYS[e.code]) Input.hits.push({ hand: HIT_KEYS[e.code] });
@@ -126,6 +141,8 @@
   canvas.addEventListener('mousedown', (e) => {
     e.preventDefault();
     Audio.init();
+    const p = toLogical(e.clientX, e.clientY);
+    if (iconAt(p.x, p.y)) return; // 點常駐圖示不算出拳（click 會處理切換）
     if (e.button === 0) Input.hits.push({ hand: 'L' });
     else if (e.button === 2) Input.hits.push({ hand: 'R' });
   });
@@ -139,6 +156,8 @@
     touchMode = true;
     for (const t of e.changedTouches) {
       const p = toLogical(t.clientX, t.clientY);
+      const ic = iconAt(p.x, p.y);
+      if (ic) { ic.onClick(); continue; } // 常駐圖示（喇叭等）
       const pad = 10; // 手指沒滑鼠準，命中範圍外擴
       const b = buttons.find(b =>
         p.x >= b.x - pad && p.x <= b.x + b.w + pad && p.y >= b.y - pad && p.y <= b.y + b.h + pad);
@@ -261,26 +280,73 @@
   let shakeT = 0, shakeMag = 0;
   function shake(mag) { shakeT = 0.18; shakeMag = mag || 8; }
 
-  // ---------- 背景 ----------
-  function drawBackground(t) {
+  // ---------- 全域色票（V1：淺水藍×白×金光環×粉的天空色系） ----------
+  const PAL = {
+    sky: '#a6d8ff',   // 主天空藍＝角色髮色同源
+    halo: '#ffe27a',  // 金光環
+    pink: '#ff6fa5',  // 主粉
+    ink: '#2a3b5c',   // 標準墨色（白晝用）
+  };
+
+  // ---------- 背景（V4：三關分層 day 雲海 / dusk 霞光 / night 星空） ----------
+  const BG_THEMES = {
+    day: {
+      stops: [PAL.sky, '#cfeeff', '#ffe9f3'], cloud: 'rgba(255,255,255,.85)',
+      ground: '#bfe9c8', ink: PAL.ink, inkSoft: 'rgba(40,60,90,.7)',
+    },
+    dusk: {
+      stops: ['#b393d9', '#ffb997', '#ffe3c9'], cloud: 'rgba(255,236,214,.85)',
+      ground: '#a8c9a0', ink: '#4a3558', inkSoft: 'rgba(74,53,88,.75)',
+    },
+    night: {
+      stops: ['#1c2a52', '#31447a', '#4a5a94'], cloud: 'rgba(255,255,255,.10)',
+      ground: '#3a5068', ink: '#e7eeff', inkSoft: 'rgba(231,238,255,.75)',
+    },
+  };
+  const STAGE_THEMES = ['day', 'dusk', 'night'];
+  let bgTheme = 'day';
+  function ink() { return BG_THEMES[bgTheme].ink; }
+  function inkSoft() { return BG_THEMES[bgTheme].inkSoft; }
+  function drawBackground(t, theme) {
+    bgTheme = theme || 'day';
+    const th = BG_THEMES[bgTheme];
     const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#a9e4ff');
-    g.addColorStop(0.55, '#cfeeff');
-    g.addColorStop(1, '#ffe9f3');
+    g.addColorStop(0, th.stops[0]);
+    g.addColorStop(0.55, th.stops[1]);
+    g.addColorStop(1, th.stops[2]);
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    if (bgTheme === 'night') drawStars(t);
+    if (bgTheme === 'dusk') { // 低垂的落日
+      ctx.fillStyle = 'rgba(255,214,140,.25)';
+      ctx.beginPath(); ctx.arc(W * 0.78, H - 150, 78, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,214,140,.9)';
+      ctx.beginPath(); ctx.arc(W * 0.78, H - 150, 46, 0, 7); ctx.fill();
+    }
     // 雲
-    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.fillStyle = th.cloud;
     for (let i = 0; i < 4; i++) {
       const cx = ((t * 14 + i * 280) % (W + 240)) - 120;
       const cy = 70 + i * 30 + Math.sin(t + i) * 6;
       cloud(cx, cy, 1 - i * 0.12);
     }
     // 地面
-    ctx.fillStyle = '#bfe9c8';
+    ctx.fillStyle = th.ground;
     ctx.beginPath();
     ctx.moveTo(0, H); ctx.lineTo(0, H - 90);
     ctx.quadraticCurveTo(W / 2, H - 130, W, H - 90); ctx.lineTo(W, H);
     ctx.closePath(); ctx.fill();
+  }
+  function drawStars(t) {
+    // 黃金角散布的定點星星（不用亂數，避免每幀閃跳）
+    for (let i = 0; i < 70; i++) {
+      const x = (i * 137.5) % W;
+      const y = (i * 91.7) % (H - 220);
+      ctx.globalAlpha = 0.55 + Math.sin(t * 2 + i * 1.7) * 0.45;
+      ctx.fillStyle = i % 9 === 0 ? PAL.halo : '#ffffff';
+      if (i % 13 === 0) { star(x, y, 5, 2.2, 4); ctx.fill(); }
+      else { ctx.beginPath(); ctx.arc(x, y, i % 3 === 0 ? 1.6 : 1.1, 0, 7); ctx.fill(); }
+    }
+    ctx.globalAlpha = 1;
   }
   function cloud(x, y, s) {
     ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
@@ -325,7 +391,7 @@
     ctx.beginPath(); ctx.arc(0, -40, 42, 0, 7); ctx.fill();
 
     // 後髮
-    ctx.fillStyle = '#8fe3e8';
+    ctx.fillStyle = PAL.sky; // 髮色＝天空藍（V1）
     ctx.beginPath(); ctx.arc(0, -44, 46, Math.PI, 0); ctx.fill();
     // 瀏海
     ctx.beginPath();
@@ -476,7 +542,7 @@
     ctx.fillStyle = '#fff4ee';
     ctx.beginPath(); ctx.arc(0, -40, 42, 0, 7); ctx.fill();
     // 後髮 + 瀏海 + 雙馬尾
-    ctx.fillStyle = '#8fe3e8';
+    ctx.fillStyle = PAL.sky; // 髮色＝天空藍（V1）
     ctx.beginPath(); ctx.arc(0, -44, 46, Math.PI, 0); ctx.fill();
     ctx.beginPath();
     ctx.moveTo(-44, -52);
@@ -575,7 +641,7 @@
     ctx.fillStyle = '#fff4ee';
     ctx.beginPath(); ctx.arc(-64, -28 + sob, 30, 0, 7); ctx.fill();
     // 髮
-    ctx.fillStyle = '#8fe3e8';
+    ctx.fillStyle = PAL.sky; // 髮色＝天空藍（V1）
     ctx.beginPath(); ctx.arc(-64, -32 + sob, 33, Math.PI * 0.85, Math.PI * 2.1); ctx.fill();
     // 馬尾散落在地
     ctx.beginPath(); ctx.ellipse(-96, -4, 28, 10, 0.45, 0, 7); ctx.fill();
@@ -666,10 +732,10 @@
   function drawTextBox(x, y, label, value, align) {
     ctx.textAlign = align || 'left'; ctx.textBaseline = 'top';
     ctx.font = '700 16px "Microsoft JhengHei", sans-serif';
-    ctx.fillStyle = 'rgba(40,60,90,.7)';
+    ctx.fillStyle = inkSoft();
     ctx.fillText(label, x, y);
     ctx.font = '900 30px "Microsoft JhengHei", sans-serif';
-    ctx.fillStyle = '#2a3b5c';
+    ctx.fillStyle = ink();
     ctx.fillText(value, x, y + 18);
   }
   function drawHUD() {
@@ -705,6 +771,50 @@
     ctx.arcTo(x, y + h, x, y, r);
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
+  }
+
+  // 常駐小圖示（跨場景，不隨 setScene 清空；例：喇叭）
+  const icons = [];
+  function icon(x, y, w, h, glyph, onClick) {
+    const ic = { x, y, w, h, glyph, onClick, visible: null };
+    icons.push(ic);
+    return ic;
+  }
+  function iconAt(x, y) {
+    return icons.find(ic => (!ic.visible || ic.visible()) &&
+      x >= ic.x && x <= ic.x + ic.w && y >= ic.y && y <= ic.y + ic.h);
+  }
+  function drawIcons() {
+    for (const ic of icons) {
+      if (ic.visible && !ic.visible()) continue;
+      ctx.fillStyle = 'rgba(255,255,255,.5)';
+      roundRect(ic.x, ic.y, ic.w, ic.h, 12); ctx.fill();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '22px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+      ctx.fillText(typeof ic.glyph === 'function' ? ic.glyph() : ic.glyph, ic.x + ic.w / 2, ic.y + ic.h / 2 + 1);
+    }
+  }
+  icon(W - 66, 86, 44, 40, () => Audio.muted ? '🔇' : '🔊', () => Audio.toggleMute());
+  const pauseIcon = icon(W - 116, 86, 44, 40, '⏸', () => menuPaused ? closePause() : openPause());
+  pauseIcon.visible = () => !!(scene && scene.name); // 只在關卡中顯示
+
+  // ---------- 手動暫停（X4）：ESC / P / ⏸ 圖示 ----------
+  let menuPaused = false;
+  function openPause() {
+    if (menuPaused || !scene || !scene.name) return; // 只有關卡能暫停
+    menuPaused = true;
+    button(W / 2 - 110, 250, 220, 56, '繼續', closePause, 24);
+    button(W / 2 - 110, 318, 220, 56, '重來本關', () => {
+      menuPaused = false;
+      G.score = scene.score0 || 0; // 分數退回本關開始時
+      setScene(LEVELS[G.levelIndex]());
+    }, 24);
+    button(W / 2 - 110, 386, 220, 56, '回標題', () => { menuPaused = false; setScene(TitleScene); }, 24);
+  }
+  function closePause() {
+    menuPaused = false;
+    buttons.length = 0; // 關卡中沒有其他按鈕，直接清掉暫停選單
+    Input.clear();
   }
 
   // 指標座標（換算到 960x600 邏輯座標）
@@ -755,9 +865,22 @@
     angel.punchR = Math.max(0, angel.punchR - dt * 6);
   }
   const MEAT_X = 480, MEAT_Y = 290;
-  function hitMeatFx(crit) {
-    burst(MEAT_X, MEAT_Y, crit ? '#ffd86b' : '#ff8fc7', crit ? 22 : 12);
-    shake(crit ? 14 : 7);
+  // 打擊感分級：0=普通(小星輕震) 1=加成(中爆中震) 2=爆擊/PERFECT(hit-stop 40ms+白閃+大震)
+  let hitstopT = 0, flashT = 0;
+  function hitMeatFx(tier) {
+    tier = tier === true ? 2 : tier === false ? 0 : tier;
+    if (tier >= 2) {
+      burst(MEAT_X, MEAT_Y, '#ffd86b', 26);
+      shake(16);
+      hitstopT = 0.04;
+      flashT = 0.05;
+    } else if (tier === 1) {
+      burst(MEAT_X, MEAT_Y, '#ffb1d6', 16);
+      shake(10);
+    } else {
+      burst(MEAT_X, MEAT_Y, '#ff8fc7', 8);
+      shake(6);
+    }
     Audio.punch();
   }
 
@@ -903,7 +1026,7 @@
   function Level1() {
     const maxhp = G.mode === 'single' ? G.singleHp : 100;
     return {
-      name: '連打地獄', t: 0, time: 18, hp: maxhp, maxhp,
+      name: '連打地獄', t: 0, time: 12, hp: maxhp, maxhp,
       squash: 0, qteFired: false, done: false, hits: 0, combo: 0,
       enter() { this.score0 = G.score | 0; pop(MEAT_X, MEAT_Y - 120, 'STAGE 1\n連打！', '#fff', 38); },
       update(dt) {
@@ -930,7 +1053,7 @@
           this.hp = Math.max(0, this.hp - dmg);
           G.score += alt ? 15 : 10;
           this.squash = 1; this.hits++;
-          hitMeatFx(alt && this.combo % 8 === 0);
+          hitMeatFx(alt && this.combo % 8 === 0 ? 2 : alt ? 1 : 0);
           if (this.combo % 10 === 0) pop(MEAT_X + rand(-30,30), MEAT_Y - 60, choice(['ドゴォ！','バキ！','ズドン！']), '#fff', 40);
         }
 
@@ -955,8 +1078,8 @@
         drawBackground(this.t);
         drawHUD();
         // 計時條
-        bar(W/2 - 200, 24, 400, 18, this.time / 18, '#ffd24a');
-        ctx.textAlign='center'; ctx.font='700 14px "Microsoft JhengHei"'; ctx.fillStyle='#2a3b5c';
+        bar(W/2 - 200, 24, 400, 18, this.time / 12, '#ffd24a');
+        ctx.textAlign='center'; ctx.font='700 14px "Microsoft JhengHei"'; ctx.fillStyle=ink();
         ctx.fillText('STAGE 1 · 連打地獄', W/2, 56);
         drawMeat(MEAT_X, MEAT_Y, 1.55, this.hp / this.maxhp, this.squash, this.t);
         // 肉的血條
@@ -991,12 +1114,14 @@
           doPunch(h.hand);
           const phase = this.ring;
           const closeness = Math.min(phase, 1 - phase); // 距離節拍點
-          if (closeness < 0.10) {
+          const earlySec = (1 - phase) * this.period;   // 提前量（拍點前幾秒按）
+          // X5 容錯：提前 80ms 內按在窗口邊緣算 GOOD，不斷 combo
+          if (closeness < 0.10 || earlySec < 0.08) {
             this.combo++; this.maxCombo = Math.max(this.maxCombo, this.combo);
             const perfect = closeness < 0.045;
             G.score += perfect ? 60 : 35;
             pop(MEAT_X, MEAT_Y - 70, perfect ? 'PERFECT' : 'GOOD', perfect ? '#ffd24a' : '#7CFFB0', perfect ? 44 : 36);
-            this.squash = 1; hitMeatFx(perfect); perfect ? Audio.perfect() : Audio.good();
+            this.squash = 1; hitMeatFx(perfect ? 2 : 1); perfect ? Audio.perfect() : Audio.good();
             if (this.maxhp) applyMeatDamage(this, perfect ? 8 : 5);
           } else {
             if (this.combo > 0) pop(MEAT_X, MEAT_Y - 70, 'MISS', '#ff7b7b', 36);
@@ -1007,6 +1132,8 @@
         // 數拍
         if (this.beatT >= this.period) {
           this.beatT -= this.period; this.beatCount++;
+          // 後半逐步加速：第 14 拍起由 0.62s 緩降至 0.46s
+          this.period = lerp(0.62, 0.46, clamp((this.beatCount - 14) / 12, 0, 1));
           if (!this.qteFired && this.beatCount === 14) { this.qteFired = true; QTE.start(() => {}); return; }
           if (this.beatCount >= this.totalBeats && !this.done) this.finish();
         }
@@ -1021,9 +1148,9 @@
         endStage(1200, { stage: 1, stageScore: (G.score | 0) - this.score0, lines });
       },
       render() {
-        drawBackground(this.t);
+        drawBackground(this.t, 'dusk');
         drawHUD();
-        ctx.textAlign='center'; ctx.font='700 14px "Microsoft JhengHei"'; ctx.fillStyle='#2a3b5c';
+        ctx.textAlign='center'; ctx.font='700 14px "Microsoft JhengHei"'; ctx.fillStyle=ink();
         ctx.fillText(`STAGE 2 · 連擊不斷　Combo ${this.combo}`, W/2, 40);
         drawMeat(MEAT_X, MEAT_Y, 1.45, this.maxhp ? this.hp / this.maxhp : 0.6, this.squash, this.t);
         if (this.maxhp) {
@@ -1061,13 +1188,21 @@
       enter() {
         this.score0 = G.score | 0;
         pop(MEAT_X, MEAT_Y - 120, 'STAGE 3\n節奏！', '#fff', 38);
-        // 產生簡單譜面：時間(秒) + lane
+        // 固定譜面（可背、可練），[軌, 到下一顆的間隔]；尾段密度拉高做高潮
+        const pat = [
+          ['L', .6], ['R', .6], ['L', .6], ['R', .6],                          // 熱身：左右交替
+          ['L', .45], ['R', .45], ['LR', .75],                                  // 第一個雙押
+          ['R', .45], ['L', .45], ['LR', .75],
+          ['L', .5], ['L', .35], ['R', .5], ['R', .35],                         // 切分：同軌連兩顆
+          ['LR', .7],
+          ['L', .3], ['R', .3], ['L', .3], ['R', .3], ['L', .3], ['R', .3],     // 尾段高潮：密集交替
+          ['LR', 0],                                                            // 收在雙押
+        ];
         const ch = []; let tt = 1.2;
-        const pat = ['L','R','L','R','LR','L','R','RL','L','R','L','R','LR','R','L','R','L','R','LR','L'];
-        for (const p of pat) {
-          if (p === 'LR' || p === 'RL') { ch.push({ t: tt, lane: 'L' }); ch.push({ t: tt, lane: 'R' }); }
+        for (const [p, gap] of pat) {
+          if (p === 'LR') { ch.push({ t: tt, lane: 'L' }); ch.push({ t: tt, lane: 'R' }); }
           else ch.push({ t: tt, lane: p });
-          tt += rand(0.42, 0.6);
+          tt += gap;
         }
         this.chart = ch; this.totalNotes = ch.length; this.endT = tt + 1.5;
       },
@@ -1095,12 +1230,13 @@
             const d = Math.abs(n.y - this.hitLineY);
             if (d < bestd) { bestd = d; best = n; }
           }
-          if (best && bestd < 60) {
+          // X5 容錯：音符還沒到線（提前按）多給 80ms 邊緣窗
+          if (best && (bestd < 60 || (best.y < this.hitLineY && bestd < 60 + speed * 0.08))) {
             best.hit = true; this.judged++;
             const perfect = bestd < 24;
             if (perfect) { this.perfect++; G.score += 100; pop(laneX[lane], this.hitLineY - 40, 'PERFECT', '#ffd24a', 34); Audio.perfect(); }
             else { this.good++; G.score += 50; pop(laneX[lane], this.hitLineY - 40, 'GOOD', '#7CFFB0', 30); Audio.good(); }
-            this.squash = 1; hitMeatFx(perfect);
+            this.squash = 1; hitMeatFx(perfect ? 2 : 1);
             if (this.maxhp) applyMeatDamage(this, perfect ? 8 : 5);
           } else {
             Audio.miss();
@@ -1125,16 +1261,16 @@
         endStage(1300, { stage: 2, stageScore: (G.score | 0) - this.score0, lines });
       },
       render() {
-        drawBackground(this.t);
+        drawBackground(this.t, 'night');
         drawHUD();
-        ctx.textAlign='center'; ctx.font='700 14px "Microsoft JhengHei"'; ctx.fillStyle='#2a3b5c';
+        ctx.textAlign='center'; ctx.font='700 14px "Microsoft JhengHei"'; ctx.fillStyle=ink();
         ctx.fillText('STAGE 3 · 節奏打肉　F=左　J=右', W/2, 40);
         // 軌道
         for (const lane of ['L','R']) {
           const x = laneX[lane];
           ctx.fillStyle = 'rgba(255,255,255,.35)';
           roundRect(x - 34, 60, 68, this.hitLineY - 60 + 40, 12); ctx.fill();
-          ctx.fillStyle = 'rgba(40,60,90,.5)';
+          ctx.fillStyle = inkSoft();
           ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font='900 22px "Microsoft JhengHei"';
           ctx.fillText(lane === 'L' ? 'F' : 'J', x, this.hitLineY + 24);
         }
@@ -1199,6 +1335,7 @@
   // 關卡收尾：全關卡模式插入過場（最後一關直接進結算）；單關模式進單關結算
   function endStage(delay, summary) {
     setTimeout(() => {
+      if (menuPaused) closePause(); // 結算瞬間開著暫停選單的話先收掉
       if (G.mode === 'single') { setScene(SingleResultScene(summary)); return; }
       G.levelIndex++;
       if (G.levelIndex >= LEVELS.length) setScene(ResultScene);
@@ -1217,7 +1354,7 @@
         if (this.t > 0.8 && pressed) setScene(LEVELS[G.levelIndex]());
       },
       render() {
-        drawBackground(this.t);
+        drawBackground(this.t, STAGE_THEMES[G.levelIndex]); // 過場先進下一關的天色
         ctx.fillStyle = 'rgba(20,30,55,.35)'; ctx.fillRect(0, 0, W, H);
         // 小結卡
         ctx.fillStyle = 'rgba(255,255,255,.94)';
@@ -1410,18 +1547,23 @@
     let dt = (t - lastT) / 1000; lastT = t;
     dt = Math.min(dt, 0.05); // 防分頁切回時 dt 爆衝
 
-    if (!paused) {
-      if (scene && scene.update) scene.update(dt);
-      updateAngel(dt);
-      updateParticles(dt);
-      updateEmojiFx(dt);
-      updatePops(dt);
-      if (shakeT > 0) shakeT -= dt;
+    if (!paused && !menuPaused) {
+      if (hitstopT > 0) {
+        hitstopT -= dt; // 凍幀：整個世界停 40ms，放大爆擊重量感
+      } else {
+        if (scene && scene.update) scene.update(dt);
+        updateAngel(dt);
+        updateParticles(dt);
+        updateEmojiFx(dt);
+        updatePops(dt);
+        if (shakeT > 0) shakeT -= dt;
+      }
+      if (flashT > 0) flashT -= dt;
     }
 
     // 渲染
     ctx.save();
-    if (shakeT > 0) {
+    if (shakeT > 0 && !menuPaused) {
       const m = shakeMag * (shakeT / 0.18);
       ctx.translate(rand(-m, m), rand(-m, m));
     }
@@ -1429,8 +1571,19 @@
     drawParticles();
     drawEmojiFx();
     drawPops();
+    if (menuPaused) { // 暫停選單：壓暗＋標題，按鈕蓋在上面
+      ctx.fillStyle = 'rgba(20,30,55,.55)'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '900 44px "Microsoft JhengHei", sans-serif';
+      ctx.fillText('暫停', W / 2, 180);
+    }
     drawButtons(t / 1000);
     ctx.restore();
+    if (flashT > 0) { // 爆擊白閃
+      ctx.fillStyle = `rgba(255,255,255,${(clamp(flashT / 0.05, 0, 1) * 0.6).toFixed(3)})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+    drawIcons(); // 常駐 UI 不跟著震動
 
     if (paused) {
       ctx.fillStyle = 'rgba(20,30,55,.55)'; ctx.fillRect(0, 0, W, H);
