@@ -99,16 +99,22 @@
   const Input = {
     hits: [],          // 打肉事件佇列：{hand:'L'|'R'}
     keyEvents: [],     // 原始鍵碼佇列（給 QTE / 節奏關用）：{code}
+    taps: [],          // 觸點佇列（邏輯座標，給觸控 QTE 圓靶用）：{x,y}
     down: new Set(),
     consumeHits() { const h = this.hits; this.hits = []; return h; },
     consumeKeys() { const k = this.keyEvents; this.keyEvents = []; return k; },
-    clear() { this.hits = []; this.keyEvents = []; },
+    consumeTaps() { const t = this.taps; this.taps = []; return t; },
+    clear() { this.hits = []; this.keyEvents = []; this.taps = []; },
   };
+
+  // 觸控模式：決定 QTE 題型與引導 UI（初值猜裝置，之後跟著實際輸入走）
+  let touchMode = matchMedia('(pointer: coarse)').matches;
 
   window.addEventListener('keydown', (e) => {
     if (PREVENT_KEYS.has(e.code)) e.preventDefault();   // 防空白鍵 / 方向鍵捲動
     if (e.repeat) return;                                // 不吃長按連發
     Audio.init();                                        // 鍵盤開局也要解鎖 WebAudio
+    touchMode = false;
     Input.down.add(e.code);
     Input.keyEvents.push({ code: e.code });
     if (HIT_KEYS[e.code]) Input.hits.push({ hand: HIT_KEYS[e.code] });
@@ -125,13 +131,22 @@
   });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault()); // 右鍵當右手，禁選單
 
-  // 觸控：左半=左手，右半=右手
+  // 觸控：左半=左手，右半=右手（節奏關同時餵 F/J 當左右軌）
+  // preventDefault 會擋掉合成 click，按鈕命中要在這裡自己做
   canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     Audio.init();
-    const r = canvas.getBoundingClientRect();
+    touchMode = true;
     for (const t of e.changedTouches) {
-      Input.hits.push({ hand: (t.clientX - r.left) < r.width / 2 ? 'L' : 'R' });
+      const p = toLogical(t.clientX, t.clientY);
+      const pad = 10; // 手指沒滑鼠準，命中範圍外擴
+      const b = buttons.find(b =>
+        p.x >= b.x - pad && p.x <= b.x + b.w + pad && p.y >= b.y - pad && p.y <= b.y + b.h + pad);
+      if (b) { b.onClick(); continue; }   // 點到按鈕就不當出拳
+      const hand = p.x < W / 2 ? 'L' : 'R';
+      Input.hits.push({ hand });
+      Input.keyEvents.push({ code: hand === 'L' ? 'KeyF' : 'KeyJ' });
+      Input.taps.push(p);
     }
   }, { passive: false });
 
@@ -752,25 +767,39 @@
     { code: 'ArrowUp', label: '↑' }, { code: 'ArrowDown', label: '↓' },
     { code: 'Space', label: '空白' }, { code: 'KeyF', label: 'F' }, { code: 'KeyJ', label: 'J' },
   ];
+  const QTE_TARGET_R = 72; // 觸控圓靶半徑（邏輯座標）
   const QTE = {
     active: false, key: null, time: 0, dur: 1.3, onDone: null,
+    touch: false, tx: 0, ty: 0,
     start(onDone) {
       this.active = true; this.key = choice(QTE_KEYS);
+      this.touch = touchMode; // 題型開場時定案：鍵盤按鍵 / 觸控點圓靶
+      this.tx = rand(150, W - 150); this.ty = rand(180, H - 140);
       this.time = this.dur; this.onDone = onDone;
-      Input.consumeKeys();
+      Input.clear();
       Audio.qte();
     },
     update(dt) {
       if (!this.active) return;
       this.time -= dt;
-      for (const k of Input.consumeKeys()) {
-        if (k.code === this.key.code) return this.finish(true);
-        else return this.finish(false); // 按錯也算失敗
+      if (this.touch) {
+        Input.consumeKeys(); // 觸控題型不判鍵盤
+        for (const p of Input.consumeTaps()) {
+          const hit = Math.hypot(p.x - this.tx, p.y - this.ty) <= QTE_TARGET_R;
+          return this.finish(hit); // 點偏也算失敗（同鍵盤按錯）
+        }
+      } else {
+        Input.consumeTaps();
+        for (const k of Input.consumeKeys()) {
+          if (k.code === this.key.code) return this.finish(true);
+          else return this.finish(false); // 按錯也算失敗
+        }
       }
       if (this.time <= 0) this.finish(false);
     },
     finish(ok) {
       this.active = false;
+      Input.clear(); // 答題的那一下不能漏到關卡裡變出拳/MISS
       if (ok) {
         const bonus = 300;
         G.score += bonus;
@@ -789,12 +818,29 @@
       ctx.fillRect(0, 0, W, H);
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillStyle = '#fff'; ctx.font = '900 40px "Microsoft JhengHei", sans-serif';
-      ctx.fillText('QTE！快按', W / 2, H / 2 - 90);
-      // 按鍵框
-      ctx.fillStyle = '#ffd24a';
-      roundRect(W / 2 - 70, H / 2 - 50, 140, 100, 18); ctx.fill();
-      ctx.fillStyle = '#2a3b5c'; ctx.font = '900 60px "Microsoft JhengHei", sans-serif';
-      ctx.fillText(this.key.label, W / 2, H / 2 + 2);
+      ctx.fillText(this.touch ? 'QTE！點圓靶' : 'QTE！快按', W / 2, H / 2 - 90);
+      if (this.touch) {
+        // 觸控圓靶：紅白同心圓＋倒數收縮外環
+        const pulse = 1 + Math.sin((this.dur - this.time) * 14) * 0.04;
+        ctx.save();
+        ctx.translate(this.tx, this.ty);
+        ctx.scale(pulse, pulse);
+        const rings = [[QTE_TARGET_R, '#ff5d7a'], [QTE_TARGET_R * 0.68, '#fff'], [QTE_TARGET_R * 0.38, '#ff5d7a']];
+        for (const [r, c] of rings) { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill(); }
+        ctx.fillStyle = '#fff'; ctx.font = '900 26px "Microsoft JhengHei", sans-serif';
+        ctx.fillText('點我!', 0, QTE_TARGET_R * -1.35);
+        ctx.restore();
+        // 收縮外環＝剩餘時間
+        const tr = clamp(this.time / this.dur, 0, 1);
+        ctx.strokeStyle = tr > 0.35 ? '#ffd24a' : '#ff7b7b'; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.arc(this.tx, this.ty, QTE_TARGET_R + 14 + tr * 60, 0, 7); ctx.stroke();
+      } else {
+        // 按鍵框
+        ctx.fillStyle = '#ffd24a';
+        roundRect(W / 2 - 70, H / 2 - 50, 140, 100, 18); ctx.fill();
+        ctx.fillStyle = '#2a3b5c'; ctx.font = '900 60px "Microsoft JhengHei", sans-serif';
+        ctx.fillText(this.key.label, W / 2, H / 2 + 2);
+      }
       // 時間條
       const r = clamp(this.time / this.dur, 0, 1);
       ctx.fillStyle = 'rgba(255,255,255,.3)';
@@ -843,7 +889,7 @@
       ctx.fillText('天音彼方 打肉！', W / 2, 90);
       ctx.font = '700 20px "Microsoft JhengHei", sans-serif';
       ctx.fillStyle = '#3a4a6b';
-      ctx.fillText('F / 左鍵 = 左手　　J / 右鍵 = 右手', W / 2, 150);
+      ctx.fillText(touchMode ? '點左半邊 = 左手　　點右半邊 = 右手' : 'F / 左鍵 = 左手　　J / 右鍵 = 右手', W / 2, 150);
       ctx.fillText(`最高分：${G.high}`, W / 2, 390);
       ctx.font = '700 16px "Microsoft JhengHei", sans-serif';
       ctx.fillStyle = '#5b6c92';
@@ -1111,6 +1157,21 @@
             ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
             ctx.font = '900 18px "Microsoft JhengHei", sans-serif'; ctx.fillStyle = '#e0a32e';
             ctx.fillText(`KO ×${this.ko}`, MEAT_X + 92, MEAT_Y - 144);
+          }
+        }
+        // 觸控踏板：左粉右藍，被按時亮起（亮度借用出拳動畫的衰減值）
+        if (touchMode) {
+          const pads = [
+            { x0: 16, glow: angel.punchL, rgb: '255,143,199', label: '左' },
+            { x0: W / 2 + 4, glow: angel.punchR, rgb: '124,203,255', label: '右' },
+          ];
+          for (const pd of pads) {
+            ctx.fillStyle = `rgba(${pd.rgb},${(0.18 + pd.glow * 0.3).toFixed(2)})`;
+            roundRect(pd.x0, this.hitLineY + 36, W / 2 - 20, H - this.hitLineY - 52, 14); ctx.fill();
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.font = '900 24px "Microsoft JhengHei", sans-serif';
+            ctx.fillStyle = 'rgba(255,255,255,.85)';
+            ctx.fillText(pd.label, pd.x0 + (W / 2 - 20) / 2, this.hitLineY + 36 + (H - this.hitLineY - 52) / 2);
           }
         }
         drawFists(this.t);

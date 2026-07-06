@@ -48,6 +48,55 @@ html, body {
   font-size: 13px;
   letter-spacing: .5px;
   pointer-events: none;
+
+  .hint-touch {
+    display: none;
+  }
+}
+
+/* --- 手機直立：蓋轉橫提示（僅觸控裝置，桌機縮窄視窗不觸發） --- */
+#rotate-tip {
+  display: none;
+}
+
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate-tip {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background-color: color-mix(in srgb, #1a2238 94%, #000);
+    color: color-mix(in srgb, #fff 92%, #1a2238);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 2px;
+
+    .rotate-icon {
+      font-size: 64px;
+      animation: rotate-nudge 1.6s ease-in-out infinite;
+    }
+  }
+}
+
+@keyframes rotate-nudge {
+  0%, 55%, 100% { transform: rotate(0deg); }
+  25%, 35% { transform: rotate(90deg); }
+}
+
+@media (pointer: coarse) {
+  #hint {
+    .hint-keyboard {
+      display: none;
+    }
+
+    .hint-touch {
+      display: inline;
+    }
+  }
 }
 
 @media (max-height: 520px) {

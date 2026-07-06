@@ -10,7 +10,14 @@
 <body>
   <div id="game-shell">
     <canvas id="game" width="960" height="600"></canvas>
-    <div id="hint">F / 滑鼠左鍵 = 左手　・　J / 滑鼠右鍵 = 右手</div>
+    <div id="hint">
+      <span class="hint-keyboard">F / 滑鼠左鍵 = 左手　・　J / 滑鼠右鍵 = 右手</span>
+      <span class="hint-touch">點左半邊 = 左手　・　點右半邊 = 右手</span>
+    </div>
+  </div>
+  <div id="rotate-tip">
+    <span class="rotate-icon">📱</span>
+    <p>手機請轉橫向遊玩</p>
   </div>
   <script src="js/game.js"></script>
 </body>
